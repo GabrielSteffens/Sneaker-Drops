@@ -8,14 +8,19 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "16.1.1",
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "axios": "^1.13.2",
+    "cheerio": "^1.0.0-rc.12",
+    "next": "^14.2.0",
+    "puppeteer": "^24.34.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "^18.3.27",
+    "@types/react-dom": "^18.3.7",
     "typescript": "^5"
   }
 }
