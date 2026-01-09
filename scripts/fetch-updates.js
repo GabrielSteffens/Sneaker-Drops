@@ -19,7 +19,10 @@ const URLS = {
         release: "https://www.nike.com.br/nav/tamanho/43/tipodeproduto/calcados?sorting=DescReleaseDate",
         promo: "https://www.nike.com.br/nav/genero/masculino/ofertas/emoferta/tamanho/43/tipodeproduto/calcados"
     },
-
+    Puma: {
+        release: "https://br.puma.com/lancamentos?limit=16&refine=c_productDivision%3DCal%C3%A7ados&sort=best-matches",
+        promo: "https://br.puma.com/outlet/homens/calcados"
+    }
 };
 
 const HEADERS = {
@@ -38,44 +41,74 @@ async function getBrowser() {
     return browserInstance;
 }
 
-async function scrapeNike(url, type) {
-    try {
-        console.log(`Scraping Nike (${type})...`);
-        const { data } = await axios.get(url, { headers: HEADERS });
-        const $ = cheerio.load(data);
-        const scriptContent = $('#__NEXT_DATA__').html();
+async function scrapeNike(baseUrl, type) {
+    const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+    const productMap = new Map();
 
-        if (!scriptContent) throw new Error("No NEXT_DATA found");
+    console.log(`Scraping Nike (${type}) across sizes: ${SIZES.join(', ')}...`);
 
-        const json = JSON.parse(scriptContent);
-        const products = json.props.pageProps.data?.products || [];
+    for (const size of SIZES) {
+        let url;
+        if (type === 'promotion') {
+            url = `https://www.nike.com.br/nav/ofertas/emoferta/tamanho/${size}/tipodeproduto/calcados`;
+        } else {
+            url = `https://www.nike.com.br/nav/genero/masculino/idade/adulto/tamanho/${size}/tipodeproduto/calcados?sorting=DescReleaseDate`;
+        }
 
-        return products.map(p => ({
-            id: p.id || crypto.randomUUID(),
-            brand: 'Nike',
-            title: p.name,
-            price: p.oldPrice || p.price,
-            discountPrice: p.oldPrice ? p.price : null,
-            image: `https://imgnike-a.akamaihd.net/1920x1920/${p.id}.jpg`,
-            link: p.url.startsWith('http') ? p.url : `https://www.nike.com.br${p.url}`,
-            type: type,
-            dateAdded: new Date().toISOString()
-        }));
+        try {
+            const { data } = await axios.get(url, { headers: HEADERS });
+            const $ = cheerio.load(data);
+            const scriptContent = $('#__NEXT_DATA__').html();
 
-    } catch (e) {
-        console.error(`Error scraping Nike (${type}):`, e.message);
-        return generateMockData('Nike', type);
+            if (scriptContent) {
+                const json = JSON.parse(scriptContent);
+                const products = json.props.pageProps.data?.products || [];
+
+                for (const p of products) {
+                    const id = p.id;
+                    if (!productMap.has(id)) {
+                        productMap.set(id, {
+                            id: id || crypto.randomUUID(),
+                            brand: 'Nike',
+                            title: p.name,
+                            price: p.oldPrice || p.price,
+                            discountPrice: p.oldPrice ? p.price : null,
+                            image: `https://imgnike-a.akamaihd.net/1920x1920/${p.id}.jpg`,
+                            link: p.url.startsWith('http') ? p.url : `https://www.nike.com.br${p.url}`,
+                            type: type,
+                            availableSizes: new Set(),
+                            dateAdded: new Date().toISOString()
+                        });
+                    }
+                    productMap.get(id).availableSizes.add(size);
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+        await new Promise(r => setTimeout(r, 200));
     }
+
+    const aggregatedProducts = Array.from(productMap.values()).map(p => ({
+        ...p,
+        availableSizes: Array.from(p.availableSizes).sort((a, b) => a - b)
+    }));
+
+    console.log(`Aggregated ${aggregatedProducts.length} unique Nike ${type} products.`);
+    return aggregatedProducts;
 }
 
-async function scrapeVans(url, type) {
-    try {
-        console.log(`Scraping Vans (${type}) with Puppeteer...`);
-        const browser = await getBrowser();
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1366, height: 768 });
+async function scrapeVans(baseUrl, type) {
+    const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
+    const MAX_SAFE_PAGES = 50;
+    const productMap = new Map();
 
-        // Block images/fonts to speed up
+    console.log(`Scraping Vans (${type}) across sizes: ${SIZES.join(', ')}...`);
+
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    try {
+        await page.setViewport({ width: 1366, height: 768 });
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
@@ -85,109 +118,181 @@ async function scrapeVans(url, type) {
             }
         });
 
-        // Use domcontentloaded which is faster and less prone to timeout from tracking scripts
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        // Wait for product cards explicitly
-        try {
-            await page.waitForSelector('div[class*="product"], div[class*="shelf-item"]', { timeout: 10000 });
-        } catch (e) {
-            console.log("Selector wait failed, proceeding to evaluate anyway...");
-        }
-
-        // Extract Data
-        const products = await page.evaluate((type) => {
-            const items = [];
-            // Select product cards. Vans uses specific classes or structures.
-            // Based on inspection: links that contain '/p/' and have 'R$' nearby
-            const elements = document.querySelectorAll('div[class*="product"], div[class*="shelf-item"]');
-
-            // Fallback: look for any 'a' tag with '/p/'
-            const links = Array.from(document.querySelectorAll('a[href*="/p/"]'));
-
-            // Unique links
-            const uniqueLinks = new Set();
-
-            links.forEach(a => {
-                if (items.length >= 10) return;
-
-                const href = a.getAttribute('href');
-                if (uniqueLinks.has(href)) return;
-                uniqueLinks.add(href);
-
-                // Try to find context
-                // Often the <a> wraps the image and title/price are siblings or children
-                // Or there is a parent container
-
-                // Naive extraction from text text content
-                const container = a.closest('div') || a;
-                const text = container.innerText;
-
-                // Try to parse price
-                const flowPriceMatch = text.match(/R\$\s?([\d,.]+)/);
-
-                // Try to find image (we blocked images, but src might be there?) 
-                // Wait, request interception blocks loading, but DOM still has <img> tags usually? 
-                // Actually if we block images, they might not render. 
-                // Let's rely on finding the <img> tag
-                const img = container.querySelector('img');
-                const title = img ? img.getAttribute('alt') : '';
-
-                if (flowPriceMatch) {
-                    const priceVal = parseFloat(flowPriceMatch[1].replace('.', '').replace(',', '.'));
-
-                    items.push({
-                        title: title || 'Vans Product',
-                        price: priceVal,
-                        image: img ? img.src : null, // This might be empty if blocked? No, src attribute exists.
-                        link: href
-                    });
+        for (const size of SIZES) {
+            let pageNum = 0;
+            while (pageNum < MAX_SAFE_PAGES) {
+                let url;
+                if (type === 'promotion') {
+                    url = `https://www.vans.com.br/c/promocao?q=:creation-time:category:SAPATOS:shoeSize:${size}&page=${pageNum}`;
+                } else {
+                    url = `https://www.vans.com.br/c/novidades?q=:creation-time:shoeSize:${size}&page=${pageNum}`;
                 }
-            });
-            return items;
-        }, type);
 
-        await page.close();
+                try {
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+                    try {
+                        await page.waitForSelector('div[class*="product"], div[class*="shelf-item"]', { timeout: 3000 });
+                    } catch (e) { }
 
-        // If simple scrape failed to get images due to blocking, use placeholders
-        return products.map(p => ({
-            id: crypto.randomUUID(),
-            brand: 'Vans',
-            title: p.title.length > 5 ? p.title : 'Vans Sneaker',
-            price: p.price,
-            discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
-            image: p.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80',
-            link: p.link.startsWith('http') ? p.link : `https://www.vans.com.br${p.link}`,
-            type: type,
-            dateAdded: new Date().toISOString()
-        }));
+                    const products = await page.evaluate((type) => {
+                        const items = [];
+                        const links = Array.from(document.querySelectorAll('a[href*="/p/"]'));
+                        const uniqueLinks = new Set();
+                        links.forEach(a => {
+                            const href = a.getAttribute('href');
+                            if (uniqueLinks.has(href)) return;
+                            uniqueLinks.add(href);
+                            const container = a.closest('div') || a;
+                            const text = container.innerText;
+                            const flowPriceMatch = text.match(/R\$\s?([\d,.]+)/);
+                            const img = container.querySelector('img');
+                            const title = img ? img.getAttribute('alt') : '';
+                            if (flowPriceMatch) {
+                                const priceVal = parseFloat(flowPriceMatch[1].replace('.', '').replace(',', '.'));
+                                items.push({
+                                    title: title || 'Vans Product',
+                                    price: priceVal,
+                                    image: img ? img.src : null,
+                                    link: href
+                                });
+                            }
+                        });
+                        return items;
+                    }, type);
 
-    } catch (e) {
-        console.error(`Error scraping Vans (${type}):`, e.message);
-        return generateMockData('Vans', type);
-    }
+                    if (products.length === 0) break;
+
+                    for (const p of products) {
+                        const id = crypto.createHash('md5').update(p.link).digest('hex').substring(0, 8);
+                        if (!productMap.has(id)) {
+                            productMap.set(id, {
+                                id: id,
+                                brand: 'Vans',
+                                title: p.title.length > 5 ? p.title : 'Vans Sneaker',
+                                price: p.price,
+                                discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
+                                image: p.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80',
+                                link: p.link.startsWith('http') ? p.link : `https://www.vans.com.br${p.link}`,
+                                type: type,
+                                availableSizes: new Set(),
+                                dateAdded: new Date().toISOString()
+                            });
+                        }
+                        productMap.get(id).availableSizes.add(size);
+                    }
+                    pageNum++;
+                } catch (e) {
+                    break;
+                }
+            }
+        }
+    } catch (e) { }
+
+    const aggregatedProducts = Array.from(productMap.values()).map(p => ({
+        ...p,
+        availableSizes: Array.from(p.availableSizes).sort((a, b) => a - b)
+    }));
+
+    console.log(`Aggregated ${aggregatedProducts.length} unique Vans ${type} products.`);
+    return aggregatedProducts;
 }
 
-function generateMockData(brand, type) {
-    // Fallback Mock Data Generator
-    const count = 5;
-    const items = [];
-    const IMAGES = ['https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80'];
+async function scrapePuma(url, type) {
+    console.log(`Scraping Puma (${type}) single pass: ${url}...`);
+    const browser = await getBrowser();
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1366, height: 768 });
 
-    for (let i = 0; i < count; i++) {
-        const basePrice = Math.floor(Math.random() * 200) + 100;
-        items.push({
-            id: crypto.randomUUID(),
-            brand: brand,
-            title: `${brand} ${type === 'release' ? 'New Drop' : 'Deal'} #${i + 1}`,
-            price: basePrice,
-            discountPrice: type === 'promotion' ? Math.floor(basePrice * 0.7) : null,
-            image: IMAGES[i % IMAGES.length],
-            link: 'https://example.com/product',
-            type: type,
-            dateAdded: new Date().toISOString()
+    const items = [];
+    try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+        // Scroll Logic
+        await page.evaluate(async () => {
+            const distance = 100;
+            const delay = 100;
+            const MAX_SCROLLS = 300;
+
+            for (let i = 0; i < MAX_SCROLLS; i++) {
+                const scrollHeight = document.body.scrollHeight;
+                window.scrollBy(0, distance);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                if ((window.innerHeight + window.scrollY) >= scrollHeight) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight) {
+                        break;
+                    }
+                }
+            }
         });
+
+        await new Promise(r => setTimeout(r, 2000));
+
+        const products = await page.evaluate(() => {
+            const extracted = [];
+            const cards = document.querySelectorAll('.css-v5fr4o');
+            if (cards.length === 0) return [{ debug: true, bodyLength: document.body.innerText.length }];
+
+            cards.forEach(card => {
+                const linkEl = card.querySelector('a');
+                const link = linkEl ? linkEl.href : '#';
+
+                const titleEl = card.querySelector('h3');
+                const title = titleEl ? titleEl.innerText : 'Puma Product';
+
+                const text = card.innerText;
+                const priceMatch = text.match(/R\$\s?([\d,.]+)/);
+                let price = 0;
+                if (priceMatch) {
+                    price = parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.'));
+                } else {
+                    price = 999.99;
+                }
+
+                const parent = card.parentElement;
+                let image = null;
+                if (parent) {
+                    const imgEl = parent.querySelector('img');
+                    if (imgEl) image = imgEl.src;
+                }
+
+                extracted.push({
+                    title,
+                    price,
+                    image,
+                    link,
+                    rawText: text.substring(0, 50)
+                });
+            });
+            return extracted;
+        });
+
+        if (products.length > 0 && products[0].debug) {
+            console.log(`  -> Found 0 items (debug body len: ${products[0].bodyLength})`);
+        } else {
+            console.log(`  -> Extracted ${products.length} items.`);
+            products.forEach(p => {
+                const id = crypto.createHash('md5').update(p.link + p.title).digest('hex').substring(0, 8);
+                items.push({
+                    id: id,
+                    brand: 'Puma',
+                    title: p.title,
+                    price: p.price,
+                    discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
+                    image: p.image || 'https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=600&q=80',
+                    link: p.link,
+                    type: type,
+                    availableSizes: [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44],
+                    dateAdded: new Date().toISOString()
+                });
+            });
+        }
+    } catch (e) {
+        console.error(`Error scraping Puma: ${e.message}`);
+    } finally {
+        await page.close();
     }
+    console.log(`Aggregated ${items.length} unique Puma ${type} products.`);
     return items;
 }
 
@@ -195,15 +300,17 @@ async function main() {
     console.log("Starting daily update process...");
     let allProducts = [];
 
+    // Puma
+    allProducts = allProducts.concat(await scrapePuma(URLS.Puma.release, 'release'));
+    allProducts = allProducts.concat(await scrapePuma(URLS.Puma.promo, 'promotion'));
+
     // Nike
     allProducts = allProducts.concat(await scrapeNike(URLS.Nike.release, 'release'));
     allProducts = allProducts.concat(await scrapeNike(URLS.Nike.promo, 'promotion'));
 
-    // Vans (Puppeteer)
+    // Vans
     allProducts = allProducts.concat(await scrapeVans(URLS.Vans.release, 'release'));
     allProducts = allProducts.concat(await scrapeVans(URLS.Vans.promo, 'promotion'));
-
-
 
     if (browserInstance) await browserInstance.close();
 

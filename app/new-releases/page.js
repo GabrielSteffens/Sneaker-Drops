@@ -1,7 +1,6 @@
 import { getProducts } from '@/lib/data';
 import Header from '@/components/Header';
 import FilterableProductGrid from '@/components/FilterableProductGrid';
-import PageTitle from '@/components/PageTitle';
 import styles from '../page.module.css';
 
 // Force dynamic rendering since we are reading from a local file that changes
@@ -17,11 +16,9 @@ export default async function NewReleases() {
         <main className={styles.main}>
             <Header />
 
-            <PageTitle pageKey="newReleases" />
-
             <div className={styles.content}>
                 <div id="new-releases">
-                    <FilterableProductGrid products={newReleases} />
+                    <FilterableProductGrid titleKey="newReleases" products={newReleases} />
                 </div>
             </div>
 

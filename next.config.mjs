@@ -22,6 +22,10 @@ const nextConfig = {
                 protocol: 'https',
                 hostname: 'imgnike-a.akamaihd.net',
             },
+            {
+                protocol: 'https',
+                hostname: 'images.puma.com',
+            },
         ],
     },
     eslint: {

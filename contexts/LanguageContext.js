@@ -17,7 +17,7 @@ const dictionary = {
             subtitle: "Track new releases and promotions from Nike and Vans. Stop browsing. Start coping.",
             ctaPrimary: "Explore New Drops",
             ctaSecondary: "View Promotions",
-            status: "Nike & Vans (Live Automation)"
+            status: "Nike, Vans & Puma (Live Automation)"
         },
         pages: {
             newReleases: "New Releases",
@@ -25,7 +25,8 @@ const dictionary = {
             deals: "Deals & Steals"
         },
         common: {
-            toggle: "BR"
+            toggle: "BR",
+            searchPlaceholder: "Search by model..."
         }
     },
     pt: {
@@ -40,7 +41,7 @@ const dictionary = {
             subtitle: "Acompanhe lançamentos e promoções da Nike e Vans. Pare de procurar. Comece a comprar.",
             ctaPrimary: "Explorar Lançamentos",
             ctaSecondary: "Ver Promoções",
-            status: "Nike & Vans (Automação ao Vivo)"
+            status: "Nike, Vans & Puma (Automação ao Vivo)"
         },
         pages: {
             newReleases: "Lançamentos",
@@ -48,7 +49,8 @@ const dictionary = {
             deals: "Ofertas Imperdíveis"
         },
         common: {
-            toggle: "EN"
+            toggle: "EN",
+            searchPlaceholder: "Buscar por modelo..."
         }
     }
 };
