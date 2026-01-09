@@ -10,6 +10,7 @@ export default function FilterableProductGrid({ title, titleKey, products }) {
     const [selectedBrand, setSelectedBrand] = useState('All');
     const [selectedSize, setSelectedSize] = useState('All');
     const [searchQuery, setSearchQuery] = useState('');
+    const [sortOrder, setSortOrder] = useState('newest');
     const [currentPage, setCurrentPage] = useState(1);
 
     const ITEMS_PER_PAGE = 15;
@@ -34,6 +35,18 @@ export default function FilterableProductGrid({ title, titleKey, products }) {
         const sizeMatch = selectedSize === 'All' || (p.availableSizes && p.availableSizes.includes(parseInt(selectedSize)));
         const searchMatch = p.title.toLowerCase().includes(searchQuery.toLowerCase());
         return brandMatch && sizeMatch && searchMatch;
+    }).sort((a, b) => {
+        if (sortOrder === 'price-asc') {
+            return a.price - b.price;
+        } else if (sortOrder === 'price-desc') {
+            return b.price - a.price;
+        }
+        // newest (default) - assuming products are initially sorted by date or newness
+        // If we have dateAdded, sort by that. Otherwise keep original order.
+        if (a.dateAdded && b.dateAdded) {
+            return new Date(b.dateAdded) - new Date(a.dateAdded);
+        }
+        return 0;
     });
 
     // Pagination Logic
@@ -55,6 +68,11 @@ export default function FilterableProductGrid({ title, titleKey, products }) {
 
     const handleSearchChange = (e) => {
         setSearchQuery(e.target.value);
+        setCurrentPage(1);
+    };
+
+    const handleSortChange = (e) => {
+        setSortOrder(e.target.value);
         setCurrentPage(1);
     };
 
@@ -86,6 +104,15 @@ export default function FilterableProductGrid({ title, titleKey, products }) {
                             onChange={handleSearchChange}
                             className={styles.searchInput}
                         />
+                        <select
+                            value={sortOrder}
+                            onChange={handleSortChange}
+                            className={styles.sortSelect}
+                        >
+                            <option value="newest">{t.common?.sortNewest || 'Newest'}</option>
+                            <option value="price-asc">{t.common?.sortPriceLowHigh || 'Price: Low to High'}</option>
+                            <option value="price-desc">{t.common?.sortPriceHighLow || 'Price: High to Low'}</option>
+                        </select>
                     </div>
 
                     <div className={styles.filtersContainer}>

@@ -164,13 +164,16 @@
 }
 
 .searchContainer {
-    margin-bottom: 20px;
+    margin-bottom: 2rem;
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
 }
 
 .searchInput {
-    width: 100%;
-    max-width: 400px;
-    padding: 12px 16px;
+    flex: 1;
+    min-width: 200px;
+    padding: 0.8rem 1rem;
     border: 1px solid var(--card-border);
     background: transparent;
     color: var(--foreground);
@@ -180,7 +183,21 @@
     transition: border-color 0.2s;
 }
 
-.searchInput:focus {
+.sortSelect {
+    padding: 0.8rem 1rem;
+    border: 1px solid var(--card-border);
+    background: transparent;
+    color: var(--foreground);
+    border-radius: 8px;
+    font-size: 1rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+    min-width: 180px;
+}
+
+.searchInput:focus,
+.sortSelect:focus {
     border-color: var(--foreground);
     background: var(--card-border);
 }

@@ -26,7 +26,11 @@ const dictionary = {
         },
         common: {
             toggle: "BR",
-            searchPlaceholder: "Search by model..."
+            searchPlaceholder: "Search by model...",
+            sortBy: "Sort by",
+            sortNewest: "Newest",
+            sortPriceLowHigh: "Price: Low to High",
+            sortPriceHighLow: "Price: High to Low"
         }
     },
     pt: {
@@ -50,7 +54,11 @@ const dictionary = {
         },
         common: {
             toggle: "EN",
-            searchPlaceholder: "Buscar por modelo..."
+            searchPlaceholder: "Buscar por modelo...",
+            sortBy: "Ordenar por",
+            sortNewest: "Mais Recentes",
+            sortPriceLowHigh: "Preço: Menor - Maior",
+            sortPriceHighLow: "Preço: Maior - Menor"
         }
     }
 };
