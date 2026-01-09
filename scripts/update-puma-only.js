@@ -64,8 +64,8 @@ async function scrapePumaSingle(url, type) {
             }
 
             cards.forEach(card => {
-                const linkEl = card.querySelector('a');
-                const link = linkEl ? linkEl.href : '#';
+                // Removed duplicate link declaration
+
 
                 const titleEl = card.querySelector('h3');
                 const title = titleEl ? titleEl.innerText : 'Puma Product';
@@ -79,8 +79,25 @@ async function scrapePumaSingle(url, type) {
                     price = 999.99; // Mock price if missing
                 }
 
-                // FIX: Image is in parent/sibling container
                 const parent = card.parentElement;
+
+                let link = '#';
+
+                // FIX: Link is often the wrapper or a text ancestor
+                const linkEl = card.closest('a');
+                if (linkEl) {
+                    link = linkEl.href;
+                } else if (card.parentElement) {
+                    // Sometimes the card itself isn't in A but siblings are? 
+                    // No, typically wrapper. Fallback to searching nearby.
+                    const parentLink = card.parentElement.closest('a');
+                    if (parentLink) link = parentLink.href;
+                }
+
+                if (link && link !== '#' && !link.startsWith('http')) {
+                    link = 'https://br.puma.com' + link;
+                }
+
                 let image = null;
                 if (parent) {
                     const imgEl = parent.querySelector('img');
@@ -92,7 +109,7 @@ async function scrapePumaSingle(url, type) {
                     price,
                     image,
                     link,
-                    rawText: text.substring(0, 100)
+                    rawText: text.substring(0, 50)
                 });
             });
             return extracted;

@@ -234,9 +234,6 @@ async function scrapePuma(url, type) {
             if (cards.length === 0) return [{ debug: true, bodyLength: document.body.innerText.length }];
 
             cards.forEach(card => {
-                const linkEl = card.querySelector('a');
-                const link = linkEl ? linkEl.href : '#';
-
                 const titleEl = card.querySelector('h3');
                 const title = titleEl ? titleEl.innerText : 'Puma Product';
 
@@ -250,6 +247,21 @@ async function scrapePuma(url, type) {
                 }
 
                 const parent = card.parentElement;
+                let link = '#';
+
+                // FIX: Link is the wrapper
+                const linkEl = card.closest('a');
+                if (linkEl) {
+                    link = linkEl.href;
+                } else if (card.parentElement) {
+                    const parentLink = card.parentElement.closest('a');
+                    if (parentLink) link = parentLink.href;
+                }
+
+                if (link && link !== '#' && !link.startsWith('http')) {
+                    link = 'https://br.puma.com' + link;
+                }
+
                 let image = null;
                 if (parent) {
                     const imgEl = parent.querySelector('img');
