@@ -14,7 +14,7 @@ const dictionary = {
         hero: {
             title1: "ALL DROPS.",
             title2: "ONE PLACE.",
-            subtitle: "Track new releases and promotions from Nike and Vans. Stop browsing. Start coping.",
+            subtitle: "Track new releases and promotions from Nike, Vans & Puma. Stop browsing. Start coping.",
             ctaPrimary: "Explore New Drops",
             ctaSecondary: "View Promotions",
             status: "Nike, Vans & Puma (Live Automation)"
@@ -38,7 +38,7 @@ const dictionary = {
         hero: {
             title1: "TODOS OS DROPS.",
             title2: "UM SÓ LUGAR.",
-            subtitle: "Acompanhe lançamentos e promoções da Nike e Vans. Pare de procurar. Comece a comprar.",
+            subtitle: "Acompanhe lançamentos e promoções da Nike, Vans & Puma. Pare de procurar. Comece a comprar.",
             ctaPrimary: "Explorar Lançamentos",
             ctaSecondary: "Ver Promoções",
             status: "Nike, Vans & Puma (Automação ao Vivo)"
