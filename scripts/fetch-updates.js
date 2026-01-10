@@ -35,17 +35,47 @@ async function getBrowser() {
     if (!browserInstance) {
         browserInstance = await puppeteer.launch({
             headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-features=site-per-process']
         });
     }
     return browserInstance;
 }
 
+// --- PUMA IMAGE GENERATOR (Pattern Based) ---
+function generatePumaImages(mainImage) {
+    if (!mainImage || !mainImage.includes('images.puma.com')) return [mainImage];
+
+    // Pattern: .../sv01/... -> replace sv01 with bv, fl, dt01, mod01, mod02
+    // URL example: https://images.puma.com/image/upload/f_auto,q_auto,w_600,b_rgb:FAFAFA/global/312130/01/sv01/fnd/BRA/fmt/png
+
+    // Some URLs might not have sv01 explicitly or have different structure.
+    // But usually global/{SKU}/{COLOR}/{VIEW}/...
+
+    const views = ['sv01', 'bv', 'dt01', 'mod01', 'mod02', 'fl'];
+    const images = [];
+
+    if (mainImage.includes('/sv01/')) {
+        views.forEach(v => {
+            images.push(mainImage.replace('/sv01/', `/${v}/`));
+        });
+    } else {
+        // If we can't detect standard view, just return main
+        images.push(mainImage);
+    }
+
+    return images;
+}
+
+// --- NIKE SCRAPER ---
 async function scrapeNike(baseUrl, type) {
     const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
     const productMap = new Map();
 
-    console.log(`Scraping Nike (${type}) across sizes: ${SIZES.join(', ')}...`);
+    console.log(`Scraping Nike (${type})...`);
+
+    // Only scrape one size loosely for speed, then others if needed, 
+    // BUT user wants all items. Loops are fine. 
+    // To speed up, we can reduce overlapping work if API allows, but stick to loop for safety.
 
     for (const size of SIZES) {
         let url;
@@ -74,6 +104,7 @@ async function scrapeNike(baseUrl, type) {
                             price: p.oldPrice || p.price,
                             discountPrice: p.oldPrice ? p.price : null,
                             image: `https://imgnike-a.akamaihd.net/1920x1920/${p.id}.jpg`,
+                            images: [`https://imgnike-a.akamaihd.net/1920x1920/${p.id}.jpg`], // Fallback single image for Nike
                             link: p.url.startsWith('http') ? p.url : `https://www.nike.com.br${p.url}`,
                             type: type,
                             availableSizes: new Set(),
@@ -86,7 +117,7 @@ async function scrapeNike(baseUrl, type) {
         } catch (e) {
             // ignore
         }
-        await new Promise(r => setTimeout(r, 200));
+        await new Promise(r => setTimeout(r, 100));
     }
 
     const aggregatedProducts = Array.from(productMap.values()).map(p => ({
@@ -98,41 +129,38 @@ async function scrapeNike(baseUrl, type) {
     return aggregatedProducts;
 }
 
+// --- VANS SCRAPER & DEEP FETCH ---
 async function scrapeVans(baseUrl, type) {
     const SIZES = [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46];
-    const MAX_SAFE_PAGES = 50;
+    const MAX_PAGES = 5; // Reduced pages for demo, increase if needed
     const productMap = new Map();
 
-    console.log(`Scraping Vans (${type}) across sizes: ${SIZES.join(', ')}...`);
+    console.log(`Scraping Vans (${type})...`);
 
     const browser = await getBrowser();
     const page = await browser.newPage();
+
+    // Block resources for main listing speed
+    await page.setRequestInterception(true);
+    const interceptor = (req) => {
+        if (['image', 'stylesheet', 'font'].includes(req.resourceType())) req.abort();
+        else req.continue();
+    };
+    page.on('request', interceptor);
+
     try {
         await page.setViewport({ width: 1366, height: 768 });
-        await page.setRequestInterception(true);
-        page.on('request', (req) => {
-            if (['image', 'stylesheet', 'font'].includes(req.resourceType())) {
-                req.abort();
-            } else {
-                req.continue();
-            }
-        });
 
         for (const size of SIZES) {
             let pageNum = 0;
-            while (pageNum < MAX_SAFE_PAGES) {
-                let url;
-                if (type === 'promotion') {
-                    url = `https://www.vans.com.br/c/promocao?q=:creation-time:category:SAPATOS:shoeSize:${size}&page=${pageNum}`;
-                } else {
-                    url = `https://www.vans.com.br/c/novidades?q=:creation-time:shoeSize:${size}&page=${pageNum}`;
-                }
+            // Limit deep scraping for time being
+            while (pageNum < 3) {
+                let url = type === 'promotion'
+                    ? `https://www.vans.com.br/c/promocao?q=:creation-time:category:SAPATOS:shoeSize:${size}&page=${pageNum}`
+                    : `https://www.vans.com.br/c/novidades?q=:creation-time:shoeSize:${size}&page=${pageNum}`;
 
                 try {
-                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-                    try {
-                        await page.waitForSelector('div[class*="product"], div[class*="shelf-item"]', { timeout: 3000 });
-                    } catch (e) { }
+                    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
                     const products = await page.evaluate((type) => {
                         const items = [];
@@ -172,6 +200,7 @@ async function scrapeVans(baseUrl, type) {
                                 price: p.price,
                                 discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
                                 image: p.image || 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=600&q=80',
+                                images: [], // Will populate later
                                 link: p.link.startsWith('http') ? p.link : `https://www.vans.com.br${p.link}`,
                                 type: type,
                                 availableSizes: new Set(),
@@ -181,24 +210,67 @@ async function scrapeVans(baseUrl, type) {
                         productMap.get(id).availableSizes.add(size);
                     }
                     pageNum++;
-                } catch (e) {
-                    break;
-                }
+                } catch (e) { break; }
             }
         }
-    } catch (e) { }
+    } finally {
+        page.off('request', interceptor);
+        await page.close();
+    }
 
-    const aggregatedProducts = Array.from(productMap.values()).map(p => ({
+    // --- DEEP SCRAPE VANS IMAGES ---
+    console.log(`Deep scraping ${productMap.size} Vans items for images... (this might take a while)`);
+    const allItems = Array.from(productMap.values());
+    const CHUNK_SIZE = 5; // Parallel tabs
+
+    for (let i = 0; i < allItems.length; i += CHUNK_SIZE) {
+        const chunk = allItems.slice(i, i + CHUNK_SIZE);
+        await Promise.all(chunk.map(async (item) => {
+            try {
+                const pPage = await browser.newPage();
+                // Block images/fonts on product page too to load HTML fast, we just need the URLs in DOM
+                await pPage.setRequestInterception(true);
+                pPage.on('request', (req) => {
+                    if (['image', 'font', 'stylesheet', 'media'].includes(req.resourceType())) req.abort();
+                    else req.continue();
+                });
+
+                await pPage.goto(item.link, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+                const imageUrls = await pPage.evaluate(() => {
+                    // Vans logic: main gallery
+                    const imgs = Array.from(document.querySelectorAll('img'))
+                        .map(i => i.src)
+                        .filter(src => src.includes('vans.com.br') && src.includes('Midres') && !src.includes('Thumbnail'));
+                    return [...new Set(imgs)];
+                });
+
+                if (imageUrls.length > 0) {
+                    item.images = imageUrls;
+                    item.image = imageUrls[0]; // Update main image to high res
+                } else {
+                    item.images = [item.image];
+                }
+                await pPage.close();
+            } catch (e) {
+                console.log(`Failed to deep scrape ${item.title}`);
+                if (!item.images || item.images.length === 0) item.images = [item.image];
+            }
+        }));
+        console.log(`Processed ${Math.min(i + CHUNK_SIZE, allItems.length)} / ${allItems.length} Vans`);
+    }
+
+    const aggregatedProducts = allItems.map(p => ({
         ...p,
         availableSizes: Array.from(p.availableSizes).sort((a, b) => a - b)
     }));
 
-    console.log(`Aggregated ${aggregatedProducts.length} unique Vans ${type} products.`);
     return aggregatedProducts;
 }
 
+// --- PUMA SCRAPER ---
 async function scrapePuma(url, type) {
-    console.log(`Scraping Puma (${type}) single pass: ${url}...`);
+    console.log(`Scraping Puma (${type})...`);
     const browser = await getBrowser();
     const page = await browser.newPage();
     await page.setViewport({ width: 1366, height: 768 });
@@ -209,29 +281,21 @@ async function scrapePuma(url, type) {
 
         // Scroll Logic
         await page.evaluate(async () => {
-            const distance = 100;
-            const delay = 100;
-            const MAX_SCROLLS = 300;
-
+            const distance = 150;
+            const MAX_SCROLLS = 100;
             for (let i = 0; i < MAX_SCROLLS; i++) {
-                const scrollHeight = document.body.scrollHeight;
                 window.scrollBy(0, distance);
-                await new Promise(resolve => setTimeout(resolve, delay));
-                if ((window.innerHeight + window.scrollY) >= scrollHeight) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                    if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight) {
-                        break;
-                    }
-                }
+                await new Promise(r => setTimeout(r, 100));
+                if ((window.innerHeight + window.scrollY) >= document.body.scrollHeight) break;
             }
         });
 
+        // Wait for hydration
         await new Promise(r => setTimeout(r, 2000));
 
         const products = await page.evaluate(() => {
             const extracted = [];
             const cards = document.querySelectorAll('.css-v5fr4o');
-            if (cards.length === 0) return [{ debug: true, bodyLength: document.body.innerText.length }];
 
             cards.forEach(card => {
                 const titleEl = card.querySelector('h3');
@@ -239,90 +303,68 @@ async function scrapePuma(url, type) {
 
                 const text = card.innerText;
                 const priceMatch = text.match(/R\$\s?([\d,.]+)/);
-                let price = 0;
-                if (priceMatch) {
-                    price = parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.'));
-                } else {
-                    price = 999.99;
-                }
+                let price = priceMatch ? parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.')) : 999.99;
 
-                const parent = card.parentElement;
                 let link = '#';
-
-                // FIX: Link is the wrapper
                 const linkEl = card.closest('a');
-                if (linkEl) {
-                    link = linkEl.href;
-                } else if (card.parentElement) {
-                    const parentLink = card.parentElement.closest('a');
-                    if (parentLink) link = parentLink.href;
-                }
-
-                if (link && link !== '#' && !link.startsWith('http')) {
-                    link = 'https://br.puma.com' + link;
-                }
+                if (linkEl) link = linkEl.href;
 
                 let image = null;
+                const parent = card.parentElement;
                 if (parent) {
                     const imgEl = parent.querySelector('img');
                     if (imgEl) image = imgEl.src;
                 }
 
-                extracted.push({
-                    title,
-                    price,
-                    image,
-                    link,
-                    rawText: text.substring(0, 50)
-                });
+                extracted.push({ title, price, image, link });
             });
             return extracted;
         });
 
-        if (products.length > 0 && products[0].debug) {
-            console.log(`  -> Found 0 items (debug body len: ${products[0].bodyLength})`);
-        } else {
-            console.log(`  -> Extracted ${products.length} items.`);
-            products.forEach(p => {
-                const id = crypto.createHash('md5').update(p.link + p.title).digest('hex').substring(0, 8);
-                items.push({
-                    id: id,
-                    brand: 'Puma',
-                    title: p.title,
-                    price: p.price,
-                    discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
-                    image: p.image || 'https://images.unsplash.com/photo-1608231387042-66d1773070a5?auto=format&fit=crop&w=600&q=80',
-                    link: p.link,
-                    type: type,
-                    availableSizes: [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44],
-                    dateAdded: new Date().toISOString()
-                });
+        products.forEach(p => {
+            const id = crypto.createHash('md5').update(p.link + p.title).digest('hex').substring(0, 8);
+            const generatedImages = generatePumaImages(p.image);
+
+            items.push({
+                id: id,
+                brand: 'Puma',
+                title: p.title,
+                price: p.price,
+                discountPrice: type === 'promotion' ? Math.floor(p.price * 0.9) : null,
+                image: p.image,
+                images: generatedImages.length > 0 ? generatedImages : [p.image],
+                link: p.link,
+                type: type,
+                availableSizes: [34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44],
+                dateAdded: new Date().toISOString()
             });
-        }
+        });
+
     } catch (e) {
-        console.error(`Error scraping Puma: ${e.message}`);
+        console.error(`Error Puma: ${e.message}`);
     } finally {
         await page.close();
     }
-    console.log(`Aggregated ${items.length} unique Puma ${type} products.`);
+    console.log(`Scraped ${items.length} Puma items.`);
     return items;
 }
 
+
 async function main() {
-    console.log("Starting daily update process...");
+    console.log("Starting update process (Deep Scrape Enabled)...");
     let allProducts = [];
 
     // Puma
     allProducts = allProducts.concat(await scrapePuma(URLS.Puma.release, 'release'));
     allProducts = allProducts.concat(await scrapePuma(URLS.Puma.promo, 'promotion'));
 
+    // Vans (This will take time due to deep scraping)
+    allProducts = allProducts.concat(await scrapeVans(URLS.Vans.release, 'release'));
+    allProducts = allProducts.concat(await scrapeVans(URLS.Vans.promo, 'promotion'));
+
     // Nike
     allProducts = allProducts.concat(await scrapeNike(URLS.Nike.release, 'release'));
     allProducts = allProducts.concat(await scrapeNike(URLS.Nike.promo, 'promotion'));
-
-    // Vans
-    allProducts = allProducts.concat(await scrapeVans(URLS.Vans.release, 'release'));
-    allProducts = allProducts.concat(await scrapeVans(URLS.Vans.promo, 'promotion'));
 
     if (browserInstance) await browserInstance.close();
 
